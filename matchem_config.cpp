@@ -9,11 +9,9 @@ namespace matchem {
 MatchemConfig::MatchemConfig(
 ////////////////////////////////////////////////////////////////////////////////
   const SimulationType sim_type,
-  const int num_runs,
-  const int set_size) :
+  const int num_runs) :
   m_sim_type(sim_type),
-  m_num_runs(num_runs),
-  m_set_size(set_size)
+  m_num_runs(num_runs)
 {}
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -22,7 +20,7 @@ std::ostream& MatchemConfig::operator<<(std::ostream& out) const
 {
   out << "sim type: " << m_sim_type << "\n";
   out << "num runs: " << m_num_runs << "\n";
-  out << "set size: " << m_set_size << "\n";
+  out << "set size: " << SET_SIZE << "\n";
 
   return out;
 }

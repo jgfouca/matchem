@@ -1,8 +1,9 @@
-#ifndef MATCHEM_GAME_HPP
-#define MATCHEM_GAME_HPP
+#ifndef MATCHEM_HPP
+#define MATCHEM_HPP
 
 #include "matchem_config.hpp"
 #include "matchem_exception.hpp"
+#include "matchem_kokkos.hpp"
 
 #include <iostream>
 #include <set>
@@ -20,6 +21,18 @@ class Matchem
 ////////////////////////////////////////////////////////////////////////////////
 {
  public:
+
+  // Types
+  using TeamPolicy = Kokkos::TeamPolicy<>;
+  using MemberType = typename TeamPolicy::member_type;
+
+  template <typename DataType>
+  using view = Kokkos::View<DataType, Kokkos::LayoutRight>;
+
+  using sides_view_t = view<int**>;
+
+  static constexpr int SIZE = MatchemConfig::SET_SIZE;
+
   /**
    * Constructor - sets up a "null" game state that is not playable.
    */
@@ -28,7 +41,7 @@ class Matchem
   /**
    * Destructor - cleans up memory
    */
-  virtual ~Matchem() = default;
+  ~Matchem() = default;
 
   //////////////////////////////////////////////////////////////////////////////
   //////////////////////////// PRIMARY INTERFACE ///////////////////////////////
@@ -54,7 +67,7 @@ class Matchem
    */
   std::ostream& operator<<(std::ostream& out) const;
 
- private: // ================ PRIVATE INTERFACE ================================
+ protected: // ================ PRIVATE INTERFACE ================================
 
   //////////////////////////////////////////////////////////////////////////////
   ////////////////////////// FORBIDDEN METHODS /////////////////////////////////
@@ -67,6 +80,26 @@ class Matchem
   ////////////////////////// INTERNAL METHODS //////////////////////////////////
   //////////////////////////////////////////////////////////////////////////////
 
+  // Run an indivual game of matching, returns how many rounds it took to finish
+  KOKKOS_FUNCTION
+  int run_indv(const int ws_idx);
+
+  // Initialize an indivual game of matching
+  KOKKOS_FUNCTION
+  void init_indv(const int ws_idx);
+
+  // Ask for number of correct matches
+  KOKKOS_FUNCTION
+  int get_num_matches(const int ws_idx);
+
+  // Ask for truth of an individual match. Details of how to select a match for
+  // truth query is done here.
+  KOKKOS_FUNCTION
+  void ask_truth(const int ws_idx); // extension point
+
+  // Create the best guess you can.
+  KOKKOS_FUNCTION
+  void make_guess(const int ws_idx); // extension point
 
   //////////////////////////////////////////////////////////////////////////////
   ///////////////////////////// DATA MEMBERS ///////////////////////////////////
@@ -74,6 +107,13 @@ class Matchem
 
   // m_config - The configuration for this game
   MatchemConfig m_config;
+
+  TeamPolicy m_policy;
+  TeamUtils<> m_tu;
+
+  sides_view_t m_game_state; // idx represents id of side1, value represents side2
+  sides_view_t m_known_info; // idx represents id of side1, value represents bitmask of known info
+  sides_view_t m_guess_state; // idx represents id of side1, value represents side2
 
   //////////////////////////////////////////////////////////////////////////////
   /////////////////////////////// FRIENDS //////////////////////////////////////

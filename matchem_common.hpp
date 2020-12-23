@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+#include "matchem_kokkos.hpp"
+
 /**
  * File contains some utility methods that are not associated with any
  * particular class.
@@ -40,6 +42,29 @@ bool vector_contains(const std::vector<const T*>& vect, const T& item)
   }
   return false;
 }
+
+// bit operations
+template <typename T>
+KOKKOS_INLINE_FUNCTION
+bool is_set(const T val, const int bitidx)
+{
+  return ((val >> bitidx) & 1LL) == 1;
+}
+
+template <typename T>
+KOKKOS_INLINE_FUNCTION
+void setb(T& val, const int bitidx)
+{
+  val |= 1LL << bitidx;
+}
+
+template <typename T>
+KOKKOS_INLINE_FUNCTION
+void clearb(T& val, const int bitidx)
+{
+  val &= ~(1LL << bitidx);
+}
+
 
 }
 

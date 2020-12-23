@@ -22,8 +22,6 @@ const std::string MatchemFacade::HELP =
   "       a pseudo-random seed.\n"
   "   --num-runs=<number of simulations to run> \n"
   "       How many simulations to run, default is 1000 \n"
-  "   --set-size=<size of sets> \n"
-  "       Size of each side's set, default is 10 \n"
   "\n"
   "\n"
   "EXAMPLES: \n"
@@ -46,7 +44,6 @@ void MatchemFacade::play(int argc, char** argv) const
   SimulationType sim_type  = BASIC;
   auto           rand_seed = std::time(0);
   int            num_runs  = 1000;
-  int            set_size  = 10;
 
   //do the options parsing:
   if (argc == 1) {
@@ -89,9 +86,6 @@ void MatchemFacade::play(int argc, char** argv) const
     else if (opt == "--num-runs") {
       num_runs = std::atoi(arg.c_str());
     }
-    else if (opt == "--set-size") {
-      set_size = std::atoi(arg.c_str());
-    }
     else {
       std::cerr << "Unknown option: " << opt << std::endl;
       return;
@@ -100,7 +94,10 @@ void MatchemFacade::play(int argc, char** argv) const
 
   srand(rand_seed);
 
-  MatchemConfig config(sim_type, num_runs, set_size);
+  MatchemConfig config(sim_type, num_runs);
+
+  std::cout << "Running simulation with config: " << std::endl;
+  std::cout << config << std::endl;
 
   Matchem matchem(config);
   matchem.run();
