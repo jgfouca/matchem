@@ -46,7 +46,7 @@ bool vector_contains(const std::vector<const T*>& vect, const T& item)
 // bit operations
 template <typename T>
 KOKKOS_INLINE_FUNCTION
-bool is_set(const T val, const int bitidx)
+bool is_setb(const T val, const int bitidx)
 {
   return ((val >> bitidx) & 1LL) == 1;
 }

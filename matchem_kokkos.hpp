@@ -7,6 +7,8 @@
 
 #include <Kokkos_Core.hpp>
 
+#include <type_traits>
+
 namespace matchem {
 
 template <typename ExeSpace = Kokkos::DefaultExecutionSpace>
@@ -122,11 +124,23 @@ using Unmanaged =
                  Kokkos::Unmanaged> >;
 
 // Get a 1d subview of the i-th dimension of a 2d view
-template <typename T, typename ...Parms> KOKKOS_FORCEINLINE_FUNCTION
+template <typename T, typename ...Parms>
+KOKKOS_FORCEINLINE_FUNCTION
 Unmanaged<Kokkos::View<T*, Parms...> >
-subview (const Kokkos::View<T**, Parms...>& v_in, const int i) {
+subview (const Kokkos::View<T**, Parms...>& v_in, const int i,
+         typename std::enable_if<std::remove_reference<decltype(v_in)>::type::Rank == 2>::type* = nullptr) {
   return Unmanaged<Kokkos::View<T*, Parms...> >(
     &v_in.impl_map().reference(i, 0), v_in.extent(1));
+}
+
+// Get a 2d subview of the i-th dimension of a 3d view
+template <typename T, typename ...Parms>
+KOKKOS_FORCEINLINE_FUNCTION
+Unmanaged<Kokkos::View<T**, Parms...> >
+subview (const Kokkos::View<T***, Parms...>& v_in, const int i,
+         typename std::enable_if<std::remove_reference<decltype(v_in)>::type::Rank == 3>::type* = nullptr) {
+  return Unmanaged<Kokkos::View<T**, Parms...> >(
+    &v_in.impl_map().reference(i, 0, 0), v_in.extent(1), v_in.extent(2));
 }
 
 }

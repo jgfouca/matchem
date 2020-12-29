@@ -14,6 +14,11 @@ Matchem::Matchem(const MatchemConfig& config) :
   m_policy(ExeSpaceUtils<>::get_default_team_policy(m_config.num_runs())),
   m_tu(m_policy),
   m_game_state("m_game_state", m_tu.get_num_concurrent_teams(), SIZE),
+#ifdef EXTRA_TRACKING
+  m_full_info( "m_full_info",  m_tu.get_num_concurrent_teams(), SIZE, MAX_ROUNDS),
+  m_round_info("m_round_info", m_tu.get_num_concurrent_teams(), MAX_ROUNDS),
+  m_odds_info( "m_odds_info",  m_tu.get_num_concurrent_teams(), SIZE, SIZE),
+#endif
   m_known_info("m_known_info", m_tu.get_num_concurrent_teams(), SIZE),
   m_guess_state("m_guess_state", m_tu.get_num_concurrent_teams(), SIZE)
 {
@@ -53,13 +58,15 @@ int Matchem::run_indv(const int ws_idx)
   int matches = 0;
 
   do {
-    ++rounds;
+    ask_truth(ws_idx, rounds);
 
-    ask_truth(ws_idx);
-
-    make_guess(ws_idx);
+    make_guess(ws_idx, rounds);
 
     matches = get_num_matches(ws_idx);
+
+    process_guess_result(ws_idx, rounds, matches);
+
+    ++rounds;
   } while(matches < SIZE);
 
   return rounds;
@@ -76,16 +83,35 @@ void Matchem::init_indv(const int ws_idx)
 
   for (int i = 0; i < SIZE; ++i) {
     my_state(i) = i;
-    my_guess(i) = 0;
+    my_guess(i) = -1;
     my_info(i)  = 0;
   }
 
   std::random_shuffle(&my_state(0), &my_state(0) + SIZE);
+
+#ifdef EXTRA_TRACKING
+  auto my_full_info  = matchem::subview(m_full_info, ws_idx);
+  auto my_round_info = matchem::subview(m_round_info, ws_idx);
+  auto my_odds_info  = matchem::subview(m_odds_info, ws_idx);
+
+  for (int i = 0; i < MAX_ROUNDS; ++i) {
+    my_round_info(i) = -1;
+  }
+
+  for (int i = 0; i < SIZE; ++i) {
+    for (int r = 0; r < MAX_ROUNDS; ++r) {
+      my_full_info(i, r) = -1;
+    }
+    for (int j = 0; j < SIZE; ++j) {
+      my_odds_info(i, j) = -1;
+    }
+  }
+#endif
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 KOKKOS_FUNCTION
-int Matchem::get_num_matches(const int ws_idx)
+int Matchem::get_num_matches(const int ws_idx) const
 ////////////////////////////////////////////////////////////////////////////////
 {
   auto my_state = matchem::subview(m_game_state, ws_idx);
@@ -103,62 +129,215 @@ int Matchem::get_num_matches(const int ws_idx)
 
 ////////////////////////////////////////////////////////////////////////////////
 KOKKOS_FUNCTION
-void Matchem::ask_truth(const int ws_idx)
+Matchem::MatchState Matchem::get_state(const int ws_idx, const int side1, const int side2) const
 ////////////////////////////////////////////////////////////////////////////////
 {
-  auto my_info  = matchem::subview(m_known_info, ws_idx);
-  auto my_state = matchem::subview(m_game_state, ws_idx);
-
   static_assert(sizeof(int) == sizeof(int16_t)*2, "Incompatible int sizes");
+  static_assert(SIZE <= 16, "SIZE too big to fit into int16_t bitmask");
 
-  for (int i = 0; i < SIZE; ++i) {
-    int16_t* pieces = reinterpret_cast<int16_t*>(&my_info(i));
-    int16_t& known_matches = pieces[0];
-    int16_t& known_misses  = pieces[1];
+  auto my_info  = matchem::subview(m_known_info, ws_idx);
 
-    if (known_matches == 0) {
-      // no match is known yet for this item
-      int j_to_ask = -1;
-      for (int j = 0; j < SIZE; ++j) {
-        if (!is_set(known_misses, j)) {
-          j_to_ask = j;
-          break;
-        }
-      }
+  int16_t* pieces = reinterpret_cast<int16_t*>(&my_info(side1));
+  const int16_t known_matches = pieces[0];
+  const int16_t known_misses  = pieces[1];
 
-      // make the ask!
-      if (my_state(i) == j_to_ask) {
-        // match!
-        setb(known_matches, j_to_ask);
-
-        // no other items can match to this j
-        for (int k = 0; k < SIZE; ++k) {
-          if (k != i) {
-            int16_t* other_pieces       = reinterpret_cast<int16_t*>(&my_info(k));
-            int16_t& other_known_misses = other_pieces[1];
-
-            setb(other_known_misses, j_to_ask);
-          }
-        }
-      }
-      else {
-        // no match
-        setb(known_misses, j_to_ask);
-      }
-
-      return;
-    }
+  if (is_setb(known_matches, side2)) {
+    assert(!is_setb(known_misses, side2));
+    return YES_MATCH;
   }
-
-  assert(false); // No guess was able to be made
+  else if (is_setb(known_misses, side2)) {
+    assert(!is_setb(known_matches, side2));
+    return NO_MATCH;
+  }
+  else {
+    return UNKNOWN_MATCH;
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 KOKKOS_FUNCTION
-void Matchem::make_guess(const int ws_idx)
+void Matchem::set_state(const int ws_idx, const int side1, const int side2, const MatchState state)
 ////////////////////////////////////////////////////////////////////////////////
 {
   auto my_info  = matchem::subview(m_known_info, ws_idx);
+
+  int16_t* pieces = reinterpret_cast<int16_t*>(&my_info(side1));
+  int16_t& known_matches = pieces[0];
+  int16_t& known_misses  = pieces[1];
+
+  assert(state != UNKNOWN_MATCH);
+
+  assert(!is_setb(known_matches, side2));
+  assert(!is_setb(known_misses, side2));
+
+  if (state == YES_MATCH) {
+    setb(known_matches, side2);
+    // no other items can match to this j
+    for (int i = 0; i < SIZE; ++i) {
+      if (i != side1) {
+        int16_t* other_pieces       = reinterpret_cast<int16_t*>(&my_info(i));
+        int16_t& other_known_misses = other_pieces[1];
+
+        setb(other_known_misses, side2);
+      }
+    }
+  }
+  else {
+    assert(state == NO_MATCH);
+
+    setb(known_misses, side2);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+KOKKOS_FUNCTION
+bool Matchem::has_match(const int ws_idx, const int side1) const
+////////////////////////////////////////////////////////////////////////////////
+{
+  auto my_info  = matchem::subview(m_known_info, ws_idx);
+
+  int16_t* pieces = reinterpret_cast<int16_t*>(&my_info(side1));
+  const int16_t known_matches = pieces[0];
+
+  return known_matches != 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+KOKKOS_FUNCTION
+int Matchem::get_match(const int ws_idx, const int side1) const
+////////////////////////////////////////////////////////////////////////////////
+{
+  auto my_info  = matchem::subview(m_known_info, ws_idx);
+
+  int16_t* pieces = reinterpret_cast<int16_t*>(&my_info(side1));
+  const int16_t known_matches = pieces[0];
+
+  for (int j = 0; j < SIZE; ++j) {
+    if (is_setb(known_matches, j)) {
+      return j;
+    }
+  }
+
+  assert(false); // no match
+  return -1;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+KOKKOS_FUNCTION
+void Matchem::ask_truth(const int ws_idx, const int round)
+////////////////////////////////////////////////////////////////////////////////
+{
+  auto my_state = matchem::subview(m_game_state, ws_idx);
+
+  const auto query = get_best_truth_query(ws_idx, round);
+  const int side1_idx(query.first), side2_idx(query.second);
+  assert(side1_idx != -1 && side2_idx != -1);
+
+  // make the ask!
+  const bool is_match = my_state(side1_idx) == side2_idx;
+  set_state(ws_idx, side1_idx, side2_idx, is_match ? YES_MATCH : NO_MATCH);
+
+  process_ask_result(ws_idx, round, side1_idx, side2_idx, is_match);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+KOKKOS_FUNCTION
+std::pair<int, int> Matchem::get_best_truth_query(const int ws_idx, const int round) const
+////////////////////////////////////////////////////////////////////////////////
+{
+#ifdef EXTRA_TRACKING
+  if (round == 0) {
+    // we know nothing, so any guess is fine
+    return std::make_pair(0, 0);
+  }
+  else {
+    auto my_odds = matchem::subview(m_odds_info, ws_idx);
+    int best_side1_idx(-1), best_side2_idx(-1);
+    double best_odds_yet = 0.0;
+    for (int i = 0; i < SIZE; ++i) {
+      for (int j = 0; j < SIZE; ++j) {
+        if (get_state(ws_idx, i, j) == UNKNOWN_MATCH) {
+          const double odds = my_odds(i, j);
+          assert(odds >= 0.0 && odds <= 1.0);
+
+          // For now, just select the match with the best odds of being a correct
+          if (odds > best_odds_yet) {
+            best_side1_idx = i;
+            best_side2_idx = j;
+            best_odds_yet = odds;
+          }
+        }
+      }
+    }
+    return std::make_pair(best_side1_idx, best_side2_idx);
+  }
+#else
+  for (int i = 0; i < SIZE; ++i) {
+
+    if (!has_match(ws_idx, i)) {
+      // no match is known yet for this item
+      for (int j = 0; j < SIZE; ++j) {
+        if (get_state(ws_idx, i, j) == UNKNOWN_MATCH) {
+          return std::make_pair(i, j);
+        }
+      }
+    }
+  }
+#endif
+
+  assert(false); // Unable to select a query?
+  return std::make_pair(-1, -1);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+KOKKOS_FUNCTION
+void Matchem::process_ask_result(
+  const int ws_idx, const int round, const int side1_idx, const int side2_idx, bool was_match)
+////////////////////////////////////////////////////////////////////////////////
+{
+#ifdef EXTRA_TRACKING
+  auto my_odds   = matchem::subview(m_odds_info, ws_idx);
+  auto my_rounds = matchem::subview(m_round_info, ws_idx);
+
+  if (round == 0) {
+    for (int i = 0; i < SIZE; ++i) {
+      for (int j = 0; j < SIZE; ++j) {
+        if (i == side1_idx && j == side2_idx) {
+          if (was_match) {
+            my_odds(i, j) = 1.0;
+          }
+          else {
+            my_odds(i, j) = 0.0;
+          }
+        }
+        else if (i == side1_idx || j == side2_idx) {
+          if (was_match) {
+            my_odds(i, j) = 0.0;
+          }
+          else {
+            my_odds(i, j) = 1.0 / (SIZE-1);
+          }
+        }
+        else {
+          if (was_match) {
+            my_odds(i, j) = 1.0 / (SIZE-1);
+          }
+          else {
+            my_odds(i, j) = 1.0 / SIZE;
+          }
+        }
+      }
+    }
+  }
+#endif
+}
+
+////////////////////////////////////////////////////////////////////////////////
+KOKKOS_FUNCTION
+void Matchem::make_guess(const int ws_idx, const int round)
+////////////////////////////////////////////////////////////////////////////////
+{
   auto my_guess = matchem::subview(m_guess_state, ws_idx);
 
   // clear previous guesses
@@ -166,36 +345,41 @@ void Matchem::make_guess(const int ws_idx)
     my_guess(i) = -1;
   }
 
+#ifdef EXTRA_TRACKING
+  // TODO
+#else
   for (int i = 0; i < SIZE; ++i) {
-    int16_t* pieces = reinterpret_cast<int16_t*>(&my_info(i));
-    int16_t& known_matches = pieces[0];
-    int16_t& known_misses  = pieces[1];
 
-    if (known_matches != 0) {
-      // match is already known
-      for (int j = 0; j < SIZE; ++j) {
-        if (is_set(known_matches, j)) {
-          my_guess(i) = j;
-          break;
-        }
-      }
+    if (has_match(ws_idx, i)) {
+      my_guess(i) = get_match(ws_idx, i);
     }
     else {
       // no match is known yet for this item, just pick the first
       // possibility (very dumb).
       for (int j = 0; j < SIZE; ++j) {
-        if (!is_set(known_misses, j)) {
+        if (get_state(ws_idx, i, j) == UNKNOWN_MATCH) {
           my_guess(i) = j;
           break;
         }
       }
     }
   }
+#endif
 
 #ifndef NDEBUG
   for (int i = 0; i < SIZE; ++i) {
     assert(my_guess(i) != -1);
   }
+#endif
+}
+
+////////////////////////////////////////////////////////////////////////////////
+KOKKOS_FUNCTION
+void Matchem::process_guess_result(const int ws_idx, const int round, const int matches)
+////////////////////////////////////////////////////////////////////////////////
+{
+#ifdef EXTRA_TRACKING
+  // TODO
 #endif
 }
 
