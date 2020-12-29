@@ -222,6 +222,25 @@ int Matchem::get_match(const int ws_idx, const int side1) const
   return -1;
 }
 
+////////////////////////////////////////////////////////////////////////////////
+KOKKOS_FUNCTION
+int Matchem::get_num_pot_matches(const int ws_idx, const int side1) const
+////////////////////////////////////////////////////////////////////////////////
+{
+  auto my_info  = matchem::subview(m_known_info, ws_idx);
+
+  int16_t* pieces = reinterpret_cast<int16_t*>(&my_info(side1));
+  const int16_t known_misses = pieces[0];
+
+  int result = 0;
+  for (int j = 0; j < SIZE; ++j) {
+    if (!is_setb(known_misses, j)) {
+      ++result;
+    }
+  }
+
+  return result;
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 KOKKOS_FUNCTION
@@ -261,7 +280,8 @@ std::pair<int, int> Matchem::get_best_truth_query(const int ws_idx, const int ro
           const double odds = my_odds(i, j);
           assert(odds >= 0.0 && odds <= 1.0);
 
-          // For now, just select the match with the best odds of being a correct
+          // For now, just select the match with the best odds of being a correct. We'd
+          // learn the most by selecting the closest to 50/50
           if (odds > best_odds_yet) {
             best_side1_idx = i;
             best_side2_idx = j;
@@ -297,8 +317,7 @@ void Matchem::process_ask_result(
 ////////////////////////////////////////////////////////////////////////////////
 {
 #ifdef EXTRA_TRACKING
-  auto my_odds   = matchem::subview(m_odds_info, ws_idx);
-  auto my_rounds = matchem::subview(m_round_info, ws_idx);
+  auto my_odds = matchem::subview(m_odds_info, ws_idx);
 
   if (round == 0) {
     for (int i = 0; i < SIZE; ++i) {
@@ -330,8 +349,55 @@ void Matchem::process_ask_result(
       }
     }
   }
+  else {
+    // if was a match, odds of others matching to this need to be redistributed to others
+    if (was_match) {
+      for (int i = 0; i < SIZE; ++i) {
+        for (int j = 0; j < SIZE; ++j) {
+          if (i == side1_idx) {
+            if (j == side2_idx) {
+              my_odds(i, j) = 1.0;
+            }
+            else {
+              my_odds(i, j) = 0.0;
+            }
+          }
+          else {
+            if (j == side2_idx) {
+              zeroout_and_redistribute(ws_idx, i, j);
+            }
+          }
+        }
+      }
+    }
+    else {
+      // TODO - we can do better here
+      zeroout_and_redistribute(ws_idx, side1_idx, side2_idx);
+    }
+  }
 #endif
 }
+
+#ifdef EXTRA_TRACKING
+////////////////////////////////////////////////////////////////////////////////
+KOKKOS_FUNCTION
+void Matchem::zeroout_and_redistribute(const int ws_idx, const int side1, const int side2)
+////////////////////////////////////////////////////////////////////////////////
+{
+  auto my_odds = matchem::subview(m_odds_info, ws_idx);
+
+  const double before_odds = my_odds(side1, side2);
+  my_odds(side1, side2) = 0.0;
+
+  const int num_pot_matches = get_num_pot_matches(ws_idx, side1);
+
+  for (int j = 0; j < SIZE; ++j) {
+    if (j != side2) {
+      my_odds(side1, j) += before_odds / num_pot_matches;
+    }
+  }
+}
+#endif
 
 ////////////////////////////////////////////////////////////////////////////////
 KOKKOS_FUNCTION
@@ -339,32 +405,44 @@ void Matchem::make_guess(const int ws_idx, const int round)
 ////////////////////////////////////////////////////////////////////////////////
 {
   auto my_guess = matchem::subview(m_guess_state, ws_idx);
+  auto my_odds  = matchem::subview(m_odds_info, ws_idx);
 
   // clear previous guesses
   for (int i = 0; i < SIZE; ++i) {
     my_guess(i) = -1;
   }
 
-#ifdef EXTRA_TRACKING
-  // TODO
-#else
   for (int i = 0; i < SIZE; ++i) {
 
     if (has_match(ws_idx, i)) {
       my_guess(i) = get_match(ws_idx, i);
     }
     else {
-      // no match is known yet for this item, just pick the first
-      // possibility (very dumb).
+      // no match is known yet for this item
+#ifdef EXTRA_TRACKING
+      double best_odds_yet = 0.0;
+      int best_j = -1;
+      for (int j = 0; j < SIZE; ++j) {
+        if (get_state(ws_idx, i, j) == UNKNOWN_MATCH) {
+          const double curr_odds = my_odds(i, j);
+          if (curr_odds > best_odds_yet) {
+            best_odds_yet = curr_odds;
+            best_j = j;
+          }
+        }
+      }
+      my_guess(i) = best_j;
+#else
+      // just pick the first possibility (very dumb).
       for (int j = 0; j < SIZE; ++j) {
         if (get_state(ws_idx, i, j) == UNKNOWN_MATCH) {
           my_guess(i) = j;
           break;
         }
       }
+#endif
     }
   }
-#endif
 
 #ifndef NDEBUG
   for (int i = 0; i < SIZE; ++i) {

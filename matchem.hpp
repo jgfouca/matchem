@@ -67,9 +67,7 @@ class Matchem
    */
   void run();
 
-  //////////////////////////////////////////////////////////////////////////////
   //////////////////////////////// QUERIES /////////////////////////////////////
-  //////////////////////////////////////////////////////////////////////////////
 
   /**
    * get_config - returns a references to the game configuration
@@ -130,6 +128,20 @@ class Matchem
   // Get match for side1
   KOKKOS_FUNCTION
   int get_match(const int ws_idx, const int side1) const;
+
+  // Get num potential matches for side1
+  KOKKOS_FUNCTION
+  int get_num_pot_matches(const int ws_idx, const int side1) const;
+
+#ifdef EXTRA_TRACKING
+  // Zero-out the odds of a match a distribute the odds to other potential matches
+  void zeroout_and_redistribute(const int ws_idx, const int side1, const int side2);
+
+ #ifndef NDEBUG
+  // Validate odds state
+  void validate_odds(const int ws_idx) const;
+ #endif
+#endif
 
   ////////////////////////// EXTENSION POINTS //////////////////////////////////
 
