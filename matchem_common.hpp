@@ -65,6 +65,20 @@ void clearb(T& val, const int bitidx)
   val &= ~(1LL << bitidx);
 }
 
+template <int Size, typename ...Parms>
+KOKKOS_FUNCTION
+void check_even_spread(
+  const Kokkos::View<int*, Parms...>& v_in,
+  typename std::enable_if<std::remove_reference<decltype(v_in)>::type::Rank == 1>::type* = nullptr)
+{
+  int16_t counts = 0;
+  for (int i = 0; i < Size; ++i) {
+    const int value = v_in(i);
+    assert(value >= 0 && value < Size);
+    assert(!is_setb(counts, value));
+    setb(counts, value);
+  }
+}
 
 }
 

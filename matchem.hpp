@@ -136,12 +136,10 @@ class Matchem
 #ifdef EXTRA_TRACKING
   // Zero-out the odds of a match a distribute the odds to other potential matches
   void zeroout_and_redistribute(const int ws_idx, const int side1, const int side2);
-
- #ifndef NDEBUG
-  // Validate odds state
-  void validate_odds(const int ws_idx) const;
- #endif
 #endif
+
+  // Validate state
+  void validate_state(const int ws_idx) const;
 
   ////////////////////////// EXTENSION POINTS //////////////////////////////////
 
@@ -188,7 +186,6 @@ class Matchem
   // idx1 represents id of side1, idx2 represents id of side2, value represents odds of match
   view_3d_dbl_t m_odds_info;
 #endif
-  // Just use very primitive tracking
   view_2d_int_t m_known_info; // idx1 represents id of side1, value represents bitmask of known info
 
   view_2d_int_t m_guess_state; // idx1 represents id of side1, value represents side2
