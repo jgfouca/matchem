@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <string>
 #include <vector>
+#include <limits>
+#include <cmath>
 
 #include "matchem_kokkos.hpp"
 
@@ -78,6 +80,12 @@ void check_even_spread(
     assert(!is_setb(counts, value));
     setb(counts, value);
   }
+}
+
+KOKKOS_INLINE_FUNCTION
+bool approx_equal(const double val1, const double val2, const double tolerance = std::numeric_limits<double>::epsilon())
+{
+  return std::fabs(val1 - val2) < tolerance;
 }
 
 }

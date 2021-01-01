@@ -44,6 +44,7 @@ void MatchemFacade::play(int argc, char** argv) const
   SimulationType sim_type  = BASIC;
   auto           rand_seed = std::time(0);
   int            num_runs  = 1000;
+  bool           verbose   = false;
 
   //do the options parsing:
   if (argc == 1) {
@@ -86,6 +87,9 @@ void MatchemFacade::play(int argc, char** argv) const
     else if (opt == "--num-runs") {
       num_runs = std::atoi(arg.c_str());
     }
+    else if (opt == "--verbose") {
+      verbose = true;
+    }
     else {
       std::cerr << "Unknown option: " << opt << std::endl;
       return;
@@ -94,10 +98,11 @@ void MatchemFacade::play(int argc, char** argv) const
 
   srand(rand_seed);
 
-  MatchemConfig config(sim_type, num_runs);
+  MatchemConfig config(sim_type, num_runs, verbose);
 
   std::cout << "Running simulation with config: " << std::endl;
   std::cout << config << std::endl;
+  std::cout << "With random seed: " << rand_seed << std::endl;
 
   Matchem matchem(config);
   matchem.run();

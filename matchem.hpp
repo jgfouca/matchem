@@ -133,10 +133,9 @@ class Matchem
   KOKKOS_FUNCTION
   int get_num_pot_matches(const int ws_idx, const int side1) const;
 
-#ifdef EXTRA_TRACKING
-  // Zero-out the odds of a match a distribute the odds to other potential matches
-  void zeroout_and_redistribute(const int ws_idx, const int side1, const int side2);
-#endif
+  // Get num potential back matches for side2
+  KOKKOS_FUNCTION
+  int get_num_pot_back_matches(const int ws_idx, const int side2) const;
 
   // Validate state
   void validate_state(const int ws_idx) const;

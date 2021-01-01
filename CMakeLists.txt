@@ -7,7 +7,7 @@ add_subdirectory(kokkos)
 
 set(CMAKE_CXX_STANDARD 14)
 
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Woverloaded-virtual -Wnon-virtual-dtor -Wreturn-type -Wswitch-enum -Wsign-compare -Wfloat-equal -Wparentheses -Wreorder -Wshadow -Wold-style-cast -Wextra -D_GLIBCXX_DEBUG")
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Woverloaded-virtual -Wnon-virtual-dtor -Wreturn-type -Wswitch-enum -Wsign-compare -Wfloat-equal -Wparentheses -Wreorder -Wshadow -Wold-style-cast -Wextra -Wno-unused-parameter -D_GLIBCXX_DEBUG")
 
 # Cmake options
 set(MEM_DEBUG FALSE CACHE BOOL "Enable memory sanitizing. Requires Gcc/clang. May require setting LD_PRELOAD to <path>/libasan.so (default False)")
