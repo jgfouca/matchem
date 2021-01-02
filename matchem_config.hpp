@@ -33,7 +33,7 @@ class MatchemConfig
   std::ostream& operator<<(std::ostream& out) const;
 
   // want this to be a compile-time constant for now
-  static constexpr int SET_SIZE = 4;
+  static constexpr int SET_SIZE = 10;
 
  private:
 

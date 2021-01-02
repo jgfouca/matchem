@@ -129,6 +129,14 @@ class Matchem
   KOKKOS_FUNCTION
   int get_match(const int ws_idx, const int side1) const;
 
+  // Get first potential match for side1
+  KOKKOS_FUNCTION
+  int get_first_pot_match(const int ws_idx, const int side1) const;
+
+    // Get first potential back match for side2
+  KOKKOS_FUNCTION
+  int get_first_pot_back_match(const int ws_idx, const int side2) const;
+
   // Get num potential matches for side1
   KOKKOS_FUNCTION
   int get_num_pot_matches(const int ws_idx, const int side1) const;

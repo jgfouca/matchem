@@ -146,8 +146,6 @@ void Matchem::ask_truth(const int ws_idx, const int round)
 
   // make the ask!
   const bool is_match = my_state(side1_idx) == side2_idx;
-  set_state(ws_idx, side1_idx, side2_idx, is_match ? YES_MATCH : NO_MATCH);
-  assert(get_state(ws_idx, side1_idx, side2_idx) == (is_match ? YES_MATCH : NO_MATCH));
 
   process_ask_result(ws_idx, round, side1_idx, side2_idx, is_match);
 }
@@ -263,6 +261,46 @@ int Matchem::get_match(const int ws_idx, const int side1) const
 
 ////////////////////////////////////////////////////////////////////////////////
 KOKKOS_FUNCTION
+int Matchem::get_first_pot_match(const int ws_idx, const int side1) const
+////////////////////////////////////////////////////////////////////////////////
+{
+  auto my_info  = matchem::subview(m_known_info, ws_idx);
+
+  int16_t* pieces = reinterpret_cast<int16_t*>(&my_info(side1));
+  const int16_t known_misses = pieces[1];
+
+  for (int j = 0; j < SIZE; ++j) {
+    if (!is_setb(known_misses, j)) {
+      return j;
+    }
+  }
+
+  assert(false);
+  return -1;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+KOKKOS_FUNCTION
+int Matchem::get_first_pot_back_match(const int ws_idx, const int side2) const
+////////////////////////////////////////////////////////////////////////////////
+{
+  auto my_info  = matchem::subview(m_known_info, ws_idx);
+
+  for (int i = 0; i < SIZE; ++i) {
+    int16_t* pieces = reinterpret_cast<int16_t*>(&my_info(i));
+    const int16_t known_misses = pieces[1];
+
+    if (!is_setb(known_misses, side2)) {
+      return i;
+    }
+  }
+
+  assert(false);
+  return -1;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+KOKKOS_FUNCTION
 int Matchem::get_num_pot_matches(const int ws_idx, const int side1) const
 ////////////////////////////////////////////////////////////////////////////////
 {
@@ -323,9 +361,17 @@ void Matchem::validate_state(const int ws_idx) const
       outgoing_odds += curr_odds;
       incoming_odds[j] += curr_odds;
     }
+    if (!approx_equal(outgoing_odds, 1.0, 0.0001)) {
+      std::cout << "Problem with outgoing odds for side1 " << i << ":" << outgoing_odds << std::endl;
+      std::cout << *this << std::endl;
+    }
     assert(approx_equal(outgoing_odds, 1.0, 0.0001));
   }
   for (int j = 0; j < SIZE; ++j) {
+    if (!approx_equal(incoming_odds[j], 1.0, 0.0001)) {
+      std::cout << "Problem with incoming odds for side2 " << j << ":" << incoming_odds[j] << std::endl;
+      std::cout << *this << std::endl;
+    }
     assert(approx_equal(incoming_odds[j], 1.0, 0.0001));
   }
  #endif
@@ -397,29 +443,62 @@ void Matchem::process_ask_result(
   const int ws_idx, const int round, const int side1_idx, const int side2_idx, bool was_match)
 ////////////////////////////////////////////////////////////////////////////////
 {
+  set_state(ws_idx, side1_idx, side2_idx, was_match ? YES_MATCH : NO_MATCH);
+  assert(get_state(ws_idx, side1_idx, side2_idx) == (was_match ? YES_MATCH : NO_MATCH));
+
+  if (!was_match) {
+    const int num_pot_matches = get_num_pot_matches(ws_idx, side1_idx);
+    bool did_substitute_action = false;
+    if (num_pot_matches == 1) {
+      const int infer_side2_match = get_first_pot_match(ws_idx, side1_idx);
+      process_ask_result(ws_idx, round, side1_idx, infer_side2_match, true);
+      did_substitute_action = true;
+    }
+    const int num_pot_back_matches = get_num_pot_back_matches(ws_idx, side2_idx);
+    if (num_pot_back_matches == 1) {
+      const int infer_side1_match = get_first_pot_back_match(ws_idx, side2_idx);
+      if (get_state(ws_idx, infer_side1_match, side2_idx) == UNKNOWN_MATCH) {
+        process_ask_result(ws_idx, round, infer_side1_match, side2_idx, true);
+        did_substitute_action = true;
+      }
+    }
+    if (did_substitute_action) {
+      return;
+    }
+  }
+
 #ifdef EXTRA_TRACKING
   auto my_odds = matchem::subview(m_odds_info, ws_idx);
 
   vprint("side1 " << side1_idx << (was_match ? " matched " : " did not match ") << "side2 " << side2_idx);
 
   if (was_match) {
-    for (int i = 0; i < SIZE; ++i) {
-      if (i == side1_idx) {
-        for (int j = 0; j < SIZE; ++j) {
-          my_odds(i, j) = (j == side2_idx ? 1.0 : 0.0);
-        }
+    for (int j = 0; j < SIZE; ++j) {
+      if (j == side2_idx) {
+        my_odds(side1_idx, j) = 1.0;
       }
       else {
-        // if was a match, odds of other i matching to this j need to be redistributed
-        const int num_pot_matches = get_num_pot_matches(ws_idx, i);
-        const double before_odds = my_odds(i, side2_idx);
-        const double fwd_delta_per_match = before_odds / num_pot_matches;
-        my_odds(i, side2_idx) = 0.0;
-        for (int j = 0; j < SIZE; ++j) {
-          if (j != side2_idx) {
-            my_odds(i, j) += fwd_delta_per_match;
+        const double before_odds = my_odds(side1_idx, j);
+        if (before_odds > 0.0) {
+          my_odds(side1_idx, j) = 0.0;
+          int num_pot_back_matches = get_num_pot_back_matches(ws_idx, j);
+          for (int ii = 0; ii < SIZE; ++ii) {
+            if (ii != side1_idx && get_state(ws_idx, ii, j) == UNKNOWN_MATCH && my_odds(ii, side2_idx) == 0.0) {
+              --num_pot_back_matches;
+            }
+          }
+          for (int ii = 0; ii < SIZE; ++ii) {
+            if (ii != side1_idx && get_state(ws_idx, ii, j) == UNKNOWN_MATCH && my_odds(ii, side2_idx) > 0.0) {
+
+              my_odds(ii, j) += before_odds / num_pot_back_matches;
+            }
           }
         }
+      }
+    }
+    for (int i = 0; i < SIZE; ++i) {
+      if (i != side1_idx) {
+        my_odds(i, side2_idx) = 0.0;
       }
     }
   }
@@ -442,6 +521,9 @@ void Matchem::process_ask_result(
             if (i != side1_idx && get_state(ws_idx, i, j) == UNKNOWN_MATCH) {
               my_odds(i, j) -= bwd_delta_per_match;
               odds_lost[i] += bwd_delta_per_match;
+              if (my_odds(i, j) < 0) {
+                my_odds(i, j) = 0.0; // round-off issues can cause us to go very slightly below zero
+              }
             }
           }
         }
@@ -449,7 +531,7 @@ void Matchem::process_ask_result(
     }
 
     for (int i = 0; i < SIZE; ++i) {
-      if (i != side1_idx) {
+      if (i != side1_idx && get_state(ws_idx, i, side2_idx) == UNKNOWN_MATCH) {
         my_odds(i, side2_idx) += odds_lost[i];
       }
     }
