@@ -482,15 +482,19 @@ void Matchem::process_ask_result(
         if (before_odds > 0.0) {
           my_odds(side1_idx, j) = 0.0;
           int num_pot_back_matches = get_num_pot_back_matches(ws_idx, j);
-          for (int ii = 0; ii < SIZE; ++ii) {
-            if (ii != side1_idx && get_state(ws_idx, ii, j) == UNKNOWN_MATCH && my_odds(ii, side2_idx) == 0.0) {
-              --num_pot_back_matches;
+          if (num_pot_back_matches > 0) {
+            for (int i = 0; i < SIZE; ++i) {
+              if (i != side1_idx && get_state(ws_idx, i, j) == UNKNOWN_MATCH && my_odds(i, side2_idx) == 0.0) {
+                --num_pot_back_matches;
+              }
             }
-          }
-          for (int ii = 0; ii < SIZE; ++ii) {
-            if (ii != side1_idx && get_state(ws_idx, ii, j) == UNKNOWN_MATCH && my_odds(ii, side2_idx) > 0.0) {
+            if (num_pot_back_matches > 0) {
+              for (int i = 0; i < SIZE; ++i) {
+                if (i != side1_idx && get_state(ws_idx, i, j) == UNKNOWN_MATCH && my_odds(i, side2_idx) > 0.0) {
 
-              my_odds(ii, j) += before_odds / num_pot_back_matches;
+                  my_odds(i, j) += before_odds / num_pot_back_matches;
+                }
+              }
             }
           }
         }
@@ -514,15 +518,22 @@ void Matchem::process_ask_result(
     for (int j = 0; j < SIZE; ++j) {
       if (j != side2_idx && get_state(ws_idx, side1_idx, j) == UNKNOWN_MATCH) {
         my_odds(side1_idx, j) += fwd_delta_per_match;
-        const int num_pot_other_back_matches = get_num_pot_back_matches(ws_idx, j) - 1;
+        int num_pot_other_back_matches = get_num_pot_back_matches(ws_idx, j) - 1;
         if (num_pot_other_back_matches > 0) {
-          const double bwd_delta_per_match = fwd_delta_per_match / num_pot_other_back_matches;
           for (int i = 0; i < SIZE; ++i) {
-            if (i != side1_idx && get_state(ws_idx, i, j) == UNKNOWN_MATCH) {
-              my_odds(i, j) -= bwd_delta_per_match;
-              odds_lost[i] += bwd_delta_per_match;
-              if (my_odds(i, j) < 0) {
-                my_odds(i, j) = 0.0; // round-off issues can cause us to go very slightly below zero
+            if (i != side1_idx && get_state(ws_idx, i, j) == UNKNOWN_MATCH && get_state(ws_idx, i, side2_idx) == NO_MATCH) {
+              --num_pot_other_back_matches;
+            }
+          }
+          if (num_pot_other_back_matches > 0) {
+            const double bwd_delta_per_match = fwd_delta_per_match / num_pot_other_back_matches;
+            for (int i = 0; i < SIZE; ++i) {
+              if (i != side1_idx && get_state(ws_idx, i, j) == UNKNOWN_MATCH && get_state(ws_idx, i, side2_idx) == UNKNOWN_MATCH) {
+                my_odds(i, j) -= bwd_delta_per_match;
+                odds_lost[i] += bwd_delta_per_match;
+                if (my_odds(i, j) < 0) {
+                  my_odds(i, j) = 0.0; // round-off issues can cause us to go very slightly below zero
+                }
               }
             }
           }
